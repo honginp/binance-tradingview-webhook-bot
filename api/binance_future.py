@@ -136,60 +136,46 @@ class BinanceFutureHttpClient(object):
             self.order_count += 1
             return "x-cLbi5uMH" + str(self._timestamp()) + str(self.order_count)
 
-    def place_order(self, symbol: str, order_side: OrderSide, order_type: OrderType, quantity: Decimal, price: Decimal,
-                    time_inforce="GTC", client_order_id=None, recvWindow=5000, stop_price=0):
-
-        """
-        下单..
-        :param symbol: BTCUSDT
-        :param side: BUY or SELL
-        :param type: LIMIT MARKET STOP
-        :param quantity: 数量.
-        :param price: 价格
-        :param stop_price: 停止单的价格.
-        :param time_inforce:
-        :param params: 其他参数
-
-        LIMIT : timeInForce, quantity, price
-        MARKET : quantity
-        STOP: quantity, price, stopPrice
-        :return:
-
-        """
-
+    def place_order(self, symbol: str, order_side: OrderSide, order_type: OrderType, quantity: Decimal, price: Decimal = None,
+                time_inforce="GTC", client_order_id=None, recvWindow=5000, stop_price=0, position_side="BOTH", reduceOnly=False):
         path = '/fapi/v1/order'
-
         if client_order_id is None:
             client_order_id = self.get_client_order_id()
 
         params = {
             "symbol": symbol,
             "side": order_side.value,
-            "type": 'LIMIT',
-            "quantity": quantity,
-            "price": price,
+            "type": order_type.value,
+            "quantity": str(quantity),
             "recvWindow": recvWindow,
             "timestamp": self._timestamp(),
-            "newClientOrderId": client_order_id
+            "newClientOrderId": client_order_id,
+            "positionSide": position_side,
+            "reduceOnly": reduceOnly
         }
 
         if order_type == OrderType.LIMIT:
-            params['type'] = 'LIMIT'
+            if price is None:
+                raise ValueError("price required for LIMIT")
+            params['price'] = str(price)
             params['timeInForce'] = time_inforce
         elif order_type == OrderType.MARKET:
-            if params.get('price', None):
+            if 'price' in params:
                 del params['price']
-
+        elif order_type == OrderType.STOP:
+            if stop_price <= 0:
+                raise ValueError("stopPrice must be greater than 0 for STOP")
+            if price is None:
+                raise ValueError("price required for STOP")
+            params['price'] = str(price)
+            params['stopPrice'] = str(stop_price)
         elif order_type == OrderType.MAKER:
+            if price is None:
+                raise ValueError("price required for MAKER")
             params['type'] = 'LIMIT'
+            params['price'] = str(price)
             params['timeInForce'] = "GTX"
 
-        elif order_type == OrderType.STOP:
-            if stop_price > 0:
-                params["stopPrice"] = stop_price
-            else:
-                raise ValueError("stopPrice must greater than 0")
-        # print(params)
         return self.request(RequestMethod.POST, path=path, requery_dict=params, verify=True)
 
     def get_order(self, symbol, client_order_id=None):
@@ -274,3 +260,268 @@ class BinanceFutureHttpClient(object):
             params['symbol'] = symbol
 
         return self.request(RequestMethod.GET, path, params, verify=True)
+    
+    def set_leverage(self, symbol: str, leverage: int, recvWindow=5000):
+        """
+        Change user's initial leverage of a specific symbol.
+        https://binance-docs.github.io/apidocs/futures/en/#change-initial-leverage-trade
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :param leverage: Target leverage; integer between 1-125
+        :param recvWindow: The value must be less than 60000
+        :return: (status_code, response_data)
+        """
+        if not 1 <= leverage <= 125:
+            raise ValueError("leverage must be between 1 and 125")
+        path = "/fapi/v1/leverage"
+        params = {
+            "symbol": symbol,
+            "leverage": leverage,
+            "recvWindow": recvWindow,
+            "timestamp": self._timestamp()
+        }
+        return self.request(RequestMethod.POST, path=path, requery_dict=params, verify=True)
+
+    def modify_order_price(self, symbol: str, client_order_id: str, new_price: Decimal, quantity: Decimal, recvWindow=5000):
+        """
+        Modify the price and quantity of an existing open LIMIT order.
+        https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/Modify-Order
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :param client_order_id: Client order ID of the order to modify
+        :param new_price: New limit price
+        :param quantity: New quantity
+        :param recvWindow: The value must be less than 60000
+        :return: (status_code, response_data)
+        """
+        path = "/fapi/v1/order"
+        params = {
+            "symbol": symbol,
+            "origClientOrderId": client_order_id,
+            "price": str(new_price),
+            "quantity": str(quantity),
+            "recvWindow": recvWindow,
+            "timestamp": self._timestamp()
+        }
+        return self.request(RequestMethod.PUT, path=path, requery_dict=params, verify=True)
+
+
+    def close_all_positions(self, symbol: str, recvWindow=5000):
+        """
+        Close all positions for a given symbol by placing market orders in the opposite direction.
+        Supports Hedge Mode (LONG and SHORT positions).
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :param recvWindow: The value must be less than 60000
+        :return: List of (status_code, response_data) for each close order
+        """
+        status, positions = self.get_position_info(symbol=symbol)
+        if status != 200 or not positions:
+            return [(status, positions)]
+        responses = []
+        for position in positions:
+            if position['symbol'] != symbol:
+                continue
+            position_amount = Decimal(position['positionAmt'])
+            position_side = position.get('positionSide', 'BOTH')
+            if position_amount > Decimal('0'):  # LONG
+                status, order = self.place_order(
+                    symbol=symbol,
+                    order_side=OrderSide.SELL,
+                    order_type=OrderType.MARKET,
+                    quantity=position_amount,
+                    price=None,
+                    client_order_id=self.get_client_order_id(),
+                    recvWindow=recvWindow,
+                    position_side=position_side
+                )
+                responses.append((status, order))
+            elif position_amount < Decimal('0'):  # SHORT
+                status, order = self.place_order(
+                    symbol=symbol,
+                    order_side=OrderSide.BUY,
+                    order_type=OrderType.MARKET,
+                    quantity=abs(position_amount),
+                    price=None,
+                    client_order_id=self.get_client_order_id(),
+                    recvWindow=recvWindow,
+                    position_side=position_side
+                )
+                responses.append((status, order))
+        return responses if responses else [(200, {"msg": "No positions to close"})]
+
+    def cancel_all_orders_for_symbol(self, symbol: str):
+        """
+        Cancel all open orders for a given symbol.
+        https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/Cancel-All-Open-Orders
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :return: (status_code, response_data)
+        """
+        return self.cancel_open_orders(symbol=symbol)
+
+    def close_all_and_cancel_all(self, symbol: str):
+        """
+        Close all positions and cancel all open orders for a given symbol.
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :return: Tuple of (close_positions_responses, cancel_orders_response)
+        """
+        close_responses = self.close_all_positions(symbol=symbol)
+        cancel_response = self.cancel_all_orders_for_symbol(symbol=symbol)
+        return close_responses, cancel_response
+
+    def close_long_position(self, symbol: str, quantity: Decimal = None, percentage: Decimal = Decimal('1.0'), recvWindow=5000):
+        """
+        Close long position for a given symbol by placing a market SELL order.
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :param quantity: Quantity to close; if None, uses percentage
+        :param percentage: Percentage of position to close (0.0 to 1.0)
+        :param recvWindow: The value must be less than 60000
+        :return: (status_code, response_data)
+        """
+        status, data = self.get_position_info(symbol=symbol)
+        if status != 200 or not data:
+            return status, data
+        position = next((p for p in data if p['symbol'] == symbol and Decimal(p['positionAmt']) > 0), None)
+        if not position:
+            return 200, {"msg": "No long position to close"}
+        position_amount = Decimal(position['positionAmt'])
+        close_quantity = quantity if quantity is not None else position_amount * percentage
+        if close_quantity > position_amount:
+            close_quantity = position_amount
+        status, order = self.place_order(
+            symbol=symbol,
+            order_side=OrderSide.SELL,
+            order_type=OrderType.MARKET,
+            quantity=close_quantity,
+            price=None,
+            client_order_id=self.get_client_order_id(),
+            recvWindow=recvWindow,
+            position_side="LONG"
+        )
+        return status, order
+
+    def close_short_position(self, symbol: str, quantity: Decimal = None, percentage: Decimal = Decimal('1.0'), recvWindow=5000):
+        """
+        Close short position for a given symbol by placing a market BUY order.
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :param quantity: Quantity to close; if None, uses percentage
+        :param percentage: Percentage of position to close (0.0 to 1.0)
+        :param recvWindow: The value must be less than 60000
+        :return: (status_code, response_data)
+        """
+        status, data = self.get_position_info(symbol=symbol)
+        if status != 200 or not data:
+            return status, data
+        position = next((p for p in data if p['symbol'] == symbol and Decimal(p['positionAmt']) < 0), None)
+        if not position:
+            return 200, {"msg": "No short position to close"}
+        position_amount = Decimal(position['positionAmt'])
+        close_quantity = quantity if quantity is not None else abs(position_amount) * percentage
+        if close_quantity > abs(position_amount):
+            close_quantity = abs(position_amount)
+        status, order = self.place_order(
+            symbol=symbol,
+            order_side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=close_quantity,
+            price=None,
+            client_order_id=self.get_client_order_id(),
+            recvWindow=recvWindow,
+            position_side="SHORT"
+        )
+        return status, order
+
+    def get_unrealized_pnl(self, symbol: str):
+        """
+        Get unrealized PNL for a given symbol.
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :return: Unrealized PNL as Decimal or None if position info cannot be retrieved.
+        """
+        position_info_status, position_info_data = self.get_position_info(symbol=symbol)
+        if position_info_status == 200 and position_info_data and position_info_data[0]:
+            return Decimal(position_info_data[0].get('unRealizedProfit', '0'))
+        else:
+            return None
+
+    # Helper Functions
+    def check_min_balance(self, min_balance: Decimal = Decimal('10')): # Example min balance of 10 USDT
+        """
+        Check if the available balance is above the minimum required balance.
+        :param min_balance: Minimum balance required in USDT.
+        :return: True if balance is above min_balance, False otherwise.
+        """
+        balance_status, balance_data = self.get_balance()
+        if balance_status == 200 and balance_data:
+            for asset_balance in balance_data:
+                if asset_balance['asset'] == 'USDT':
+                    available_balance = Decimal(asset_balance['withdrawAvailable'])
+                    return available_balance >= min_balance
+        return False
+
+    def is_in_position(self, symbol: str):
+        """
+        Check if there is an open position for a given symbol.
+        :param symbol: Trading symbol, e.g. BTCUSDT
+        :return: True if in position, False otherwise.
+        """
+        position_info_status, position_info_data = self.get_position_info(symbol=symbol)
+        if position_info_status == 200 and position_info_data and position_info_data[0]:
+            position_amount = Decimal(position_info_data[0]['positionAmt'])
+            return position_amount != Decimal('0')
+        return False
+
+    # Check can cascade - Functionality unclear, requires more context. Skipping for now.
+
+
+    # Strategy Performance - Placeholder functions. Need actual historical trade data to calculate these.
+    def calculate_sharpe_ratio(self, returns):
+        """
+        Calculate Sharpe Ratio. Placeholder, needs actual historical returns data.
+        :param returns: List of returns (e.g., daily returns).
+        :return: Sharpe Ratio.
+        """
+        if not returns or len(returns) < 2:
+            return 0.0 # Not enough data
+
+        import numpy as np
+        returns_np = np.array(returns)
+        excess_returns = returns_np - 0.0 # Assuming risk-free rate is 0 for simplicity
+        sharpe_ratio = np.mean(excess_returns) / np.std(excess_returns) if np.std(excess_returns) != 0 else 0.0
+        return sharpe_ratio
+
+    def calculate_overall_pnl(self, trades):
+        """
+        Calculate overall PNL. Placeholder, needs actual historical trade data.
+        :param trades: List of trade objects with PNL information.
+        :return: Overall PNL.
+        """
+        if not trades:
+            return Decimal('0')
+        overall_pnl = sum([Decimal(trade['pnl']) for trade in trades], Decimal('0')) # Assuming trade object has 'pnl' field
+        return overall_pnl
+
+    def calculate_win_rate(self, trades):
+        """
+        Calculate win rate. Placeholder, needs actual historical trade data.
+        :param trades: List of trade objects with PNL information.
+        :return: Win rate (percentage).
+        """
+        if not trades:
+            return 0.0
+        winning_trades = sum(1 for trade in trades if Decimal(trade['pnl']) > 0) # Assuming trade object has 'pnl' field
+        win_rate = (winning_trades / len(trades)) * 100 if trades else 0.0
+        return win_rate
+
+    def calculate_drawdown(self, equity_curve):
+        """
+        Calculate drawdown. Placeholder, needs equity curve data.
+        :param equity_curve: List of equity values over time.
+        :return: Maximum drawdown.
+        """
+        if not equity_curve or len(equity_curve) < 2:
+            return Decimal('0')
+
+        max_equity = equity_curve[0]
+        max_drawdown = Decimal('0')
+        for equity in equity_curve:
+            max_equity = max(max_equity, equity)
+            drawdown = (max_equity - equity) / max_equity if max_equity != 0 else 0 # Drawdown as percentage
+            max_drawdown = max(max_drawdown, drawdown)
+        return max_drawdown

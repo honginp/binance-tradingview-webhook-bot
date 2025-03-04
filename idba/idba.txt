@@ -1,0 +1,5 @@
+AI Model	Type	Strength	Reference
+Long Short-Term Memory	Deep Learning	Time series prediction, sequential data	Deep Learning for Financial Time Series: A Survey
+Convolutional Neural Networks	Deep Learning	Pattern recognition in price charts	CNNs in Algorithmic Trading
+Proximal Policy Optimization	Reinforcement Learning	Dynamic decision-making, policy gradient	RL in Finance: Recent Advances
+Deep Q-Networks	Reinforcement Learning	Value-based, discrete actions	RL for Trading Strategies

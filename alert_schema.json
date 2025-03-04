@@ -1,0 +1,138 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TradingView Alert Schema",
+    "description": "Schema for TradingView alerts with entry and exit orders",
+    "type": "object",
+    "properties": {
+        "strategy_name": {
+            "type": "string",
+            "description": "Name of the strategy."
+        },
+        "symbol": {
+            "type": "string",
+            "description": "Trading symbol (e.g., BINANCE:BTCUSDT)."
+        },
+        "signal_id": {
+            "type": "string",
+            "description": "Unique identifier for the alert signal."
+        },
+        "uid": {
+            "type": "string",
+            "description": "Unique identifier for the user."
+        },
+        "exchange": {
+            "type": "string",
+            "enum": ["binance_future", "binance_spot"],
+            "description": "Exchange for trading."
+        },
+        "trigger_time": {
+            "type": "string",
+            "description": "Time of alert trigger (as string)."
+        },
+        "order": {
+            "type": "array",
+            "description": "Array of orders including entry and exit details.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "position_type": {
+                        "type": "string",
+                        "enum": ["entry", "exit"],
+                        "description": "Type of position: entry or exit."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["long", "short"],
+                        "description": "Position direction: long or short."
+                    },
+                    "exit_type": {
+                        "type": "string",
+                        "enum": ["take_profit", "stop_loss"],
+                        "description": "Exit order type: take_profit or stop_loss (required for exit orders)."
+                    },
+                    "order_type": {
+                        "type": "string",
+                        "enum": ["market", "limit", "stop", "maker"],
+                        "description": "Order type: market, limit, stop, or maker."
+                    },
+                    "price": {
+                        "type": "string",
+                        "description": "Price for the order (as string)."
+                    },
+                    "qty_type": {
+                        "type": "string",
+                        "enum": ["percent", "absolute"],
+                        "description": "Quantity type: percent of initial order or fixed amount."
+                    },
+                    "qty": {
+                        "type": "string",
+                        "description": "Quantity for the order (as string), percent or amount based on qty_type."
+                    },
+                    "order_id": {
+                        "type": "string",
+                        "description": "Unique identifier for the order."
+                    }
+                },
+                "required": [
+                    "position_type",
+                    "action",
+                    "order_type",
+                    "price",
+                    "qty_type",
+                    "qty",
+                    "order_id"
+                ],
+                "dependencies": {
+                    "position_type": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "position_type": {
+                                        "enum": ["entry"]
+                                    }
+                                }
+                            },
+                            {
+                                "properties": {
+                                    "position_type": {
+                                        "enum": ["exit"]
+                                    },
+                                    "exit_type": {
+                                        "type": "string",
+                                        "enum": ["take_profit", "stop_loss"]
+                                    }
+                                },
+                                "required": ["exit_type"]
+                            }
+                        ]
+                    }
+                }
+            },
+            "minItems": 1
+        },
+        "passphrase": {
+            "type": "string",
+            "description": "Security passphrase."
+        },
+        "telegram_message": {
+            "type": [ "object", "null" ],
+            "description": "Container for the Telegram message details.",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The actual Telegram message content (any text string)."
+                }
+            }
+        }
+    },
+    "required": [
+        "strategy_name",
+        "symbol",
+        "signal_id",
+        "uid",
+        "exchange",
+        "trigger_time",
+        "order",
+        "passphrase"
+    ]
+}

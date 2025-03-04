@@ -6,10 +6,13 @@
 
 # the passphrase is a string for verifying that prevents others(especially the bad guy) to invoke the POST request in the program.
 # passphrase 字符串是为了验证防止其他人(特别是坏人)去调用你的POST请求接口，这个接口是可以发送下单信号的。
+import os
 
-WEBHOOK_PASSPHRASE = "setting your tradingview passphrase, it's not your tradingview password."
-API_KEY = 'binance exchange api key, remember to edit restriction for future/spot trading'
-API_SECRET = 'api secret'
+ENVIRONMENT = 'TEST' # 'REAL'
+WEBHOOK_PASSPHRASE = "MyPassphrase"
+API_KEY = os.environ.get('BINANCE_API_KEY1') if ENVIRONMENT == 'REAL' else os.environ.get('BINANCE_TEST_API_KEY2')
+API_SECRET = os.environ.get('BINANCE_API_SECRET1') if ENVIRONMENT == 'REAL' else os.environ.get('BINANCE_TEST_API_SECRET2')
+HOST = 'https://fapi.binance.com' if ENVIRONMENT == 'REAL' else 'https://testnet.binancefuture.com'
 
 CANCEL_ORDERS_IN_SECONDS = 60 # every X second, will cancel your orders
 
@@ -26,44 +29,30 @@ from decimal import Decimal
 
 # the amount should be wrapped with Decimal, or your order amount precision will be incorrect.
 # 数量应该使用Decimal类来包裹起来，防止下单数量，价格精度的丢失。
-#
 
 strategies = {
     # strategy name -> strategy data
-    "BTCUSDT_1h": {
-        'symbol': 'BTCUSDT',
-        'tick_price': Decimal("0.1"),
-        'min_volume': Decimal("0.001"),
-        'trading_volume': Decimal("0"),  # 设置为你交易的数量，用Decimal表示.
+    "Binary": {
+        'symbol': ['BTCUSDT'],
+        'tick_price': Decimal("0.1"), # the price's precision, in Decimal
+        'min_volume': Decimal("0.002"), # relates to min notional value which worth 200 USDT, so if price is $100k, the min volume should be 0.002
+        'trading_volume': Decimal("0"),  # Set the amount of order you want to place here, use Decimal
         'pos': Decimal("0")  # current position when start your strategy, 策略当前的仓位, 用Decimal表示
     },
-    "ETHBUSD_5min": {
-        'symbol': 'ETHBUSD',
-        'tick_price': Decimal("0.01"),
-        'min_volume': Decimal("0.001"),
-        'trading_volume': Decimal("0.01"),
-        'pos': Decimal("0")  # current position when start your strategy.
-    },
-    "ETHUSDT_15min": {
-        'symbol': 'ETHUSDT',
-        'tick_price': Decimal("0.01"),
-        'min_volume': Decimal("0.001"),
-        'trading_volume': Decimal("0.01"),
-        'pos': Decimal("0")  # current position when start your strategy.
-    },
-    "UNIUSDT_5min": {
-        'symbol': 'UNIUSDT',
-        'tick_price': Decimal("0.01"),
-        'min_volume': Decimal("0.001"),
-        'trading_volume': Decimal("100"),
-        'pos': Decimal("0")  # current position when start your strategy.
-    },
-    "UNIUSDT_15min": {
-        'symbol': 'UNIUSDT',
-        'tick_price': Decimal("0.01"),
-        'min_volume': Decimal("0.001"),
-        'trading_volume': Decimal("1000"),
-        'pos': Decimal("0")  # current position when start your strategy.
-    },
-
+    "Coastline": {
+        'symbol': ['BTCUSDT'],
+        'tick_price': Decimal("0.1"), # the price's precision, in Decimal
+        'min_volume': Decimal("0.002"), # relates to min notional value which worth 200 USDT, so if price is $100k, the min volume should be 0.002
+        'trading_volume': Decimal("0"),  # 设置为你交易的数量，用Decimal表示. 
+        'pos': Decimal("0")  # current position when start your strategy, 策略当前的仓位, 用Decimal表示
+    }
 }
+
+# TRADING FEE
+# 1. Commision Fee
+# 0.0200% for maker (open/close by limit order)
+# 0.0500% for taker (open/close by market order)
+# 2. Funding Fee
+# Positive funding fee means longs pay shorts by x% every 8 hours
+# Negative funding fee means shorts pay longs by x% every 8 hours
+

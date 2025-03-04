@@ -23,6 +23,30 @@ class OrderType(Enum):
     MAKER = "MAKER"  # 做市单 Maker order, POST Only.
 
 
+class ExitType(Enum):
+    """
+    Exit type
+    """
+    STOP_LOSS = "STOP_LOSS"  # 止损单
+    TAKE_PROFIT = "TAKE_PROFIT" # 止盈单
+
+
+class QuantityType(Enum):
+    """
+    Quantity type
+    """
+    PERCENT = 'percent'
+    ABSOLUTE = 'absolute'
+
+
+class MarginType(Enum):
+    """
+    Margin type
+    """
+    ISOLATED = 'ISOLATED'
+    CROSSED = 'CROSSED'
+
+
 class RequestMethod(Enum):
     """
     Request methods
@@ -60,4 +84,22 @@ class OrderSide(Enum):
     """
     BUY = "BUY"
     SELL = "SELL"
+
+
+class SizeType(Enum):
+    ABSOLUTE = 'absolute'
+    PERCENT = 'percent'
+    FACTOR = 'factor'
+
+
+class UserDataStreamEvent(Enum):
+    LISTEN_KEY_EXPIRED = 'listenKeyExpired'
+    ACCOUNT_UPDATE = 'ACCOUNT_UPDATE'
+    MARGIN_CALL = 'MARGIN_CALL'
+    ORDER_TRADE_UPDATE = 'ORDER_TRADE_UPDATE'
+    TRADE_LITE = 'TRADE_LITE'
+    ACCOUNT_CONFIG_UPDATE = 'ACCOUNT_CONFIG_UPDATE'
+    STRATEGY_UPDATE = 'STRATEGY_UPDATE'
+    GRID_UPDATE = 'GRID_UPDATE'
+    CONDITIONAL_ORDER_TRIGGER_REJECT = 'CONDITIONAL_ORDER_TRIGGER_REJECT'
 

@@ -1,4 +1,4 @@
-import json, config
+import json, config, jsonschema, logging
 from flask import Flask, request
 from api.binance_spot import BinanceSpotHttpClient
 from api.binance_future import BinanceFutureHttpClient, OrderSide, OrderType
@@ -6,6 +6,10 @@ from event import EventEngine, Event, EVENT_TIMER, EVENT_SIGNAL
 from decimal import Decimal
 
 app = Flask(__name__)
+
+# Load the JSON schema from a file (or define it as a Python dict)
+with open("alert_schema.json", "r") as f:
+    alert_json_schema = json.load(f)
 
 
 @app.route('/', methods=['GET'])
@@ -17,6 +21,14 @@ def welcome():
 def webhook():
     try:
         data = json.loads(request.data)
+
+        # **JSON Schema Validation:**
+        try:
+            jsonschema.validate(instance=data, schema=alert_json_schema)
+        except jsonschema.exceptions.ValidationError as e:
+            print(f"JSON Schema Validation Error: {e}")
+            return f"failure: JSON schema validation error - {e}", 400  # Return 400 Bad Request
+
         print(data)
         if data.get('passphrase', None) != config.WEBHOOK_PASSPHRASE:
             return "failure: passphrase is incorrect."
@@ -25,22 +37,49 @@ def webhook():
         event_engine.put(event)
 
         return "success"
+
     except Exception as error:
         print(f"error: {error}")
         return "failure"
 
+def check_payload(data: dict) -> tuple[bool, dict]:
+    """
+    check the payload from tradingview webhook.
+    print and modify incomplete data following the schema.
+    """
+    strategy_config = config.strategies.get(data.get('strategy_name', ''), {})
+    if not strategy_config:
+        print('strategy_name cannot be found in config.')
+        return False, data
+    if data.get('price', '0') == '0':
+        print('price cannot be 0 or None.')
+        return False, data
+    if data.get('action', '') == '':
+        print('action cannot be None.')
+        return False, data
+    if data.get('symbol', '') == '':
+        print('symbol cannot be None.')
+        return False, data
+    if strategy_config.get('trading_volume', 0) == 0 or strategy_config.get('trading_volume', 0) < strategy_config.get('min_volume', 0):
+        print('trading_volume cannot be 0 or less than min_volume.')
+        return False, data
+    
+    return True, data
+
 
 def future_trade(data: dict):
-
+    data = check_payload(data)
     symbol = data.get('symbol', None)
     action = data.get('action', '').upper()
     strategy_name = data.get('strategy_name', None)
 
     if not strategy_name:
+        logging.error("strategy_name is None.")
         return
 
     strategy_config = config.strategies.get(strategy_name, None)
     if not strategy_config:
+        logging.error("strategy_config is None.")
         return
 
     current_pos = strategy_config.get('pos', 0)
@@ -239,6 +278,7 @@ def signal_event(event: Event):
 
     data = event.data
     strategy_name = data.get('strategy_name', None)
+    logging.info(f"signal event: {data}")
     if not strategy_name:
         print("config from tradingview does not have strategy_name key.")
         return None
